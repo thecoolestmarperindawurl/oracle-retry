@@ -39,6 +39,7 @@ jobs:
         id: launch
         continue-on-error: true
         run: |
+          set +e
           OUTPUT=$(oci compute instance launch \
             --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
             --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
