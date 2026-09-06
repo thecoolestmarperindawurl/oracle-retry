@@ -1,0 +1,74 @@
+name: Retry Oracle Instance
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup private key
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+
+      - name: Install oci-cli
+        run: pip3 install oci-cli
+
+      - name: Check existing instance
+        id: check
+        run: |
+          EXISTING=$(oci compute instance list \
+            --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
+            --auth api_key \
+            --region "${{ secrets.OCI_REGION }}" \
+            --config-file /dev/null \
+            2>&1 || true)
+          echo "existing=$EXISTING" >> $GITHUB_OUTPUT
+        env:
+          OCI_CLI_USER: ${{ secrets.OCI_USER_ID }}
+          OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
+          OCI_CLI_KEY_FILE: /home/runner/.oci/key.pem
+          OCI_CLI_REGION: ${{ secrets.OCI_REGION }}
+
+      - name: Launch instance
+        id: launch
+        continue-on-error: true
+        run: |
+          OUTPUT=$(oci compute instance launch \
+            --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
+            --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
+            --shape "VM.Standard.E2.1.Micro" \
+            --image-id "${{ secrets.OCI_IMAGE_ID }}" \
+            --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
+            --assign-public-ip false \
+            --metadata "{\"ssh_authorized_keys\":\"${{ secrets.OCI_SSH_PUBLIC_KEY }}\"}" \
+            --display-name "n8n-server" 2>&1)
+          echo "$OUTPUT"
+          echo "output<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          OCI_CLI_USER: ${{ secrets.OCI_USER_ID }}
+          OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
+          OCI_CLI_KEY_FILE: /home/runner/.oci/key.pem
+          OCI_CLI_REGION: ${{ secrets.OCI_REGION }}
+
+      - name: Notify Telegram on success
+        if: contains(steps.launch.outputs.output, 'lifecycle-state')
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="Da tao thanh cong instance n8n-server tren Oracle Cloud! Vao Console de gan Public IP va cai dat n8n."
+
+      - name: Disable schedule if success
+        if: contains(steps.launch.outputs.output, 'lifecycle-state')
+        run: |
+          gh workflow disable retry.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
