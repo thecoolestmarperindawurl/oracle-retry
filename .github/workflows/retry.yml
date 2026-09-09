@@ -18,23 +18,6 @@ jobs:
       - name: Install oci-cli
         run: pip3 install oci-cli
 
-            - name: Check existing instance
-        id: check
-        run: |
-          EXISTING=$(oci compute instance list \
-            --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
-            --auth api_key \
-            --region "${{ secrets.OCI_REGION }}" \
-            --config-file /dev/null \
-            2>&1 || true)
-          echo "existing=$EXISTING" >> $GITHUB_OUTPUT
-        env:
-          OCI_CLI_USER: ${{ secrets.OCI_USER_ID }}
-          OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
-          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_CLI_KEY_FILE: /home/runner/.oci/key.pem
-          OCI_CLI_REGION: ${{ secrets.OCI_REGION }}
-
       - name: Launch instance
         id: launch
         continue-on-error: true
