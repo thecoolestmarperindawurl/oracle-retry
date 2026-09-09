@@ -18,7 +18,7 @@ jobs:
       - name: Install oci-cli
         run: pip3 install oci-cli
 
-      - name: Check existing instance
+            - name: Check existing instance
         id: check
         run: |
           EXISTING=$(oci compute instance list \
