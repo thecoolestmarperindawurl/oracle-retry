@@ -5,6 +5,10 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   retry:
     runs-on: ubuntu-latest
@@ -26,12 +30,13 @@ jobs:
           OUTPUT=$(oci compute instance launch \
             --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
             --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
-            --shape "VM.Standard.E2.1.Micro" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":1,"memoryInGBs":4}' \
             --image-id "${{ secrets.OCI_IMAGE_ID }}" \
             --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
-            --assign-public-ip false \
+            --assign-public-ip true \
             --metadata "{\"ssh_authorized_keys\":\"${{ secrets.OCI_SSH_PUBLIC_KEY }}\"}" \
-            --display-name "n8n-server" 2>&1)
+            --display-name "bot-a1" 2>&1)
           echo "$OUTPUT"
           echo "output<<EOF" >> $GITHUB_OUTPUT
           echo "$OUTPUT" >> $GITHUB_OUTPUT
@@ -48,7 +53,7 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d text="Da tao thanh cong instance n8n-server tren Oracle Cloud! Vao Console de gan Public IP va cai dat n8n."
+            -d text="Da tao thanh cong may bot-a1 (A1, 1 OCPU, 4GB RAM) tren Oracle Cloud! Vao Console xem Public IP roi ket noi SSH."
 
       - name: Disable schedule if success
         if: contains(steps.launch.outputs.output, 'lifecycle-state')
