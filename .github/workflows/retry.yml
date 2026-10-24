@@ -2,7 +2,7 @@ name: Retry Oracle Instance
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -45,7 +45,7 @@ jobs:
           mkdir -p ~/.oci
           printf '%s\n' "$OCI_PRIVATE_KEY" > ~/.oci/key.pem
           chmod 600 ~/.oci/key.pem
-          OUTPUT=$(oci compute instance launch \
+          OUTPUT=$(oci --no-retry compute instance launch \
             --availability-domain "$AD" \
             --compartment-id "$OCI_CLI_TENANCY" \
             --shape "VM.Standard.A1.Flex" \
