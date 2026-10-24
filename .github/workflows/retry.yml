@@ -9,55 +9,71 @@ permissions:
   actions: write
   contents: read
 
+# Chỉ một lần chạy tại một thời điểm, tránh tạo trùng nhiều máy
+concurrency:
+  group: retry-oracle
+  cancel-in-progress: false
+
 jobs:
   retry:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Setup private key
-        run: |
-          mkdir -p ~/.oci
-          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/key.pem
-          chmod 600 ~/.oci/key.pem
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: .github/workflows/retry.yml
 
       - name: Install oci-cli
-        run: pip3 install oci-cli
+        run: pip install oci-cli
 
       - name: Launch instance
         id: launch
         continue-on-error: true
-        run: |
-          set +e
-          OUTPUT=$(oci compute instance launch \
-            --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
-            --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
-            --shape "VM.Standard.A1.Flex" \
-            --shape-config '{"ocpus":1,"memoryInGBs":4}' \
-            --image-id "${{ secrets.OCI_IMAGE_ID }}" \
-            --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
-            --assign-public-ip true \
-            --metadata "{\"ssh_authorized_keys\":\"${{ secrets.OCI_SSH_PUBLIC_KEY }}\"}" \
-            --display-name "bot-a1" 2>&1)
-          echo "$OUTPUT"
-          echo "output<<EOF" >> $GITHUB_OUTPUT
-          echo "$OUTPUT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
         env:
           OCI_CLI_USER: ${{ secrets.OCI_USER_ID }}
           OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_ID }}
           OCI_CLI_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_CLI_KEY_FILE: /home/runner/.oci/key.pem
           OCI_CLI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_CLI_KEY_FILE: /home/runner/.oci/key.pem
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
+          AD: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}
+          IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
+          SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+        run: |
+          set +e
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_PRIVATE_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          OUTPUT=$(oci compute instance launch \
+            --availability-domain "$AD" \
+            --compartment-id "$OCI_CLI_TENANCY" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":1,"memoryInGBs":4}' \
+            --image-id "$IMAGE_ID" \
+            --subnet-id "$SUBNET_ID" \
+            --assign-public-ip true \
+            --metadata "{\"ssh_authorized_keys\":\"$OCI_SSH_PUBLIC_KEY\"}" \
+            --display-name "bot-a1" 2>&1)
+          # Chỉ in dòng lỗi ngắn gọn, không in toàn bộ phản hồi (tránh lộ ID khi repo công khai)
+          echo "$OUTPUT" | grep -E '"(code|message)"|lifecycle-state' | head -5
+          if echo "$OUTPUT" | grep -q 'lifecycle-state'; then echo "created=true" >> "$GITHUB_OUTPUT"; fi
 
       - name: Notify Telegram on success
-        if: contains(steps.launch.outputs.output, 'lifecycle-state')
+        if: steps.launch.outputs.created == 'true'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
             -d text="Da tao thanh cong may bot-a1 (A1, 1 OCPU, 4GB RAM) tren Oracle Cloud! Vao Console xem Public IP roi ket noi SSH."
 
       - name: Disable schedule if success
-        if: contains(steps.launch.outputs.output, 'lifecycle-state')
-        run: |
-          gh workflow disable retry.yml
+        if: steps.launch.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow disable retry.yml
